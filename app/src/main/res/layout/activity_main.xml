@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:paddingLeft="16dp"
+    android:paddingRight="16dp"
+    android:orientation="vertical"
+    android:gravity="center">
+
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/Scan"
+        android:text="@string/make_device_discoverable"
+        android:onClick="makeDiscoverable"/>
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/discover"
+        android:text="@string/discover_other_nearby_devices"
+        android:onClick="runDiscovery"/>
+
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/AddToDatabase"
+        android:text="@string/add_new_element_to_database"
+        android:onClick="addToDatabase"/>
+
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/PrintDataBase"
+        android:text="@string/print_out_database"
+        android:onClick="printDatabase"/>
+
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/generateKeys"
+        android:text="@string/generate_keys"
+        android:onClick="generateKeys"/>
+
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/printKeys"
+        android:text="@string/print_keys"
+        android:onClick="printKeys"/>
+
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/createSignature"
+        android:text="@string/createsignature"
+        android:onClick="createSignature"/>
+
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/verifyRealSignature"
+        android:text="@string/verify_real_signature"
+        android:onClick="verifyRealSignature"/>
+
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/verifyFakeSignature"
+        android:text="@string/verify_fake_signature"
+        android:onClick="verifyFakeSignature"/>
+
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/getInfoFromServer"
+        android:text="@string/get_info_from_server"
+        android:onClick="getInfoFromServer"/>
+
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/uploadFakeToServer"
+        android:text="@string/upload_fake_key_to_server"
+        android:onClick="uploadFakeKeyToServer"/>
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/uploadRealToServer"
+        android:text="@string/upload_real_key_to_server"
+        android:onClick="uploadRealKeyToServer"/>
+
+
+
+
+
+
+
+
+
+</LinearLayout>
