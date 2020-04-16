@@ -1,6 +1,7 @@
 package com.example.coronavirustracker;
 
 import android.content.Context;
+import android.os.ParcelUuid;
 import android.util.Log;
 import android.util.Pair;
 
@@ -230,7 +231,15 @@ public class CoronaHandler {
         return UUID.randomUUID().toString();
     }
 
-
+    public static boolean uuidsMatch(ParcelUuid[] uuids, UUID targetUUID){
+        String targetUUIDString = targetUUID.toString();
+        for(ParcelUuid uuid:uuids){
+            if(uuid.getUuid().toString().equals(targetUUIDString)){
+                return true;
+            }
+        }
+        return false;
+    };
 
 
 }

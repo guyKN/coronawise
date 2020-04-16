@@ -29,23 +29,45 @@ public class ContactTrace {
     @ColumnInfo(name = "timeStamp")
     long timestamp;
 
+    /*
     @ColumnInfo(name="macAddress")
-    String macAdress;
-
+    String macAddress;
+    */
+    /*
     public ContactTrace(byte[] key, String macAddress){
         this.key = key;
         Date now = new java.util.Date();
         Timestamp timestamp = new Timestamp(now.getTime());
         this.timestamp= timestamp.getTime();
-        this.macAdress = macAddress;
+        this.macAddress = macAddress;
     }
     public ContactTrace(Key key, String macAddress){
         this.key = key.getEncoded();
         Date now = new java.util.Date();
         Timestamp timestamp = new Timestamp(now.getTime());
         this.timestamp= timestamp.getTime();
-        this.macAdress = macAddress;
+        this.macAddress = macAddress;
     }
+    */
+
+    public ContactTrace(Key key){
+        this.key = key.getEncoded();
+        Date now = new java.util.Date();
+        Timestamp timestamp = new Timestamp(now.getTime());
+        this.timestamp= timestamp.getTime();
+        //this.macAddress = "";// no MAC address has been specified, so leave it blank
+
+    }
+
+    public ContactTrace(byte[] key){
+        this.key = key;
+        Date now = new java.util.Date();
+        Timestamp timestamp = new Timestamp(now.getTime());
+        this.timestamp= timestamp.getTime();
+        //this.macAddress = "";// no MAC address has been specified, so leave it blank
+
+    }
+
 
     public int getId(){
         return this.id;

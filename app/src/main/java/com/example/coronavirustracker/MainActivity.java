@@ -16,12 +16,12 @@ import android.net.NetworkInfo;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.os.ParcelUuid;
 import android.util.Log;
 import android.util.Pair;
 import android.view.View;
 import android.widget.Toast;
 
-import com.example.coronavirustracker.bluetooth.BluetoothContactTracer;
 import com.example.coronavirustracker.bluetooth.BluetoothContactTracer2;
 import com.example.coronavirustracker.database.ContactTrace;
 import com.example.coronavirustracker.internet.DownloadCallback;
@@ -37,7 +37,9 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SignatureException;
 import java.security.spec.InvalidKeySpecException;
 import java.sql.Timestamp;
+import java.util.Arrays;
 import java.util.Date;
+import java.util.List;
 import java.util.UUID;
 
 import static com.example.coronavirustracker.CoronaHandler.KeyToString;
@@ -164,7 +166,11 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
                 // Discovery has found a device. Get the BluetoothDevice
                 // object and its info from the Intent.
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-                if(device.getName() != null) {
+                Log.i(TAG, "got somewhat far");
+                ParcelUuid[] uuids = device.getUuids();
+                Log.i(TAG, "got this far");
+                Log.i(TAG, String.valueOf(uuids.length));
+                if(CoronaHandler.uuidsMatch(uuids, MY_UUID)) { //check if the new device is the same type of application as the current application
                     mBluetoothContactTracer2.runConnectThread(device);
                     Log.i(TAG, "new device found " + device.toString() + ". Device name " + device.getName());
                     mBluetoothAdapter.cancelDiscovery();
@@ -244,7 +250,6 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
             Key pub = keys.second;
             byte[] signature = CoronaHandler.generateSignature(pvt);
             String signatureString = CoronaHandler.KeyToString(signature);
-            CoronaHandler.writeKey(new ContactTrace(pub, "blank_MAC"), context);
             startDownload(formatURLParam(signatureString), "POST");
 
         } catch (NoSuchAlgorithmException | IOException | InvalidKeySpecException | InvalidKeyException | SignatureException e) {
@@ -261,7 +266,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
     }
     public void addToDatabase(View view){
         Key key = generateKeyPair().getPublic();
-        ContactTrace contactTrace = new ContactTrace(key.getEncoded(), "blank_MAC");
+        ContactTrace contactTrace = new ContactTrace(key.getEncoded());
         CoronaHandler.writeKey(contactTrace, view.getContext());
     }
     public void generateKeys(View view){

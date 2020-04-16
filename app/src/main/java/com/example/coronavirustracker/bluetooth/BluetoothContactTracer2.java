@@ -7,12 +7,21 @@ import android.bluetooth.BluetoothSocket;
 import android.content.Context;
 import android.util.Log;
 
+import com.example.coronavirustracker.CoronaHandler;
+import com.example.coronavirustracker.database.ContactTrace;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.UUID;
 
 public class BluetoothContactTracer2 {
+
+    private static int MSG_SIZE = 2048;
+    private static byte[] MESSAGE_DONE = new byte[MSG_SIZE];// Contains 2048 zeros. the message that will be sent when the program has received the other program's key, signaling that the connection may be terminated.
+    private static byte[] MESSAGE_REQUEST_KEY; // the message to send to the other device to tell them that you haven't recieved their key yet, and want to recieve it. initialized in the constructor.
+    private static int MAX_NUM_ATTEMPTS;
+
 
     private BluetoothAdapter mBluetoothAdapter;
     private AcceptThread mAcceptThread;
@@ -23,21 +32,23 @@ public class BluetoothContactTracer2 {
     private byte[] mKey;
     private Context mContext;
     private boolean mSecure;
-    private String mMacAddress;
+    //private String mMacAddress;
 
     public static final String TAG = "BluetoothContactTracer2";
 
-    public BluetoothContactTracer2(BluetoothAdapter bluetoothAdapter, UUID uuid, String name, byte[] key, Context context, boolean secure, String macAdress){
+    public BluetoothContactTracer2(BluetoothAdapter bluetoothAdapter, UUID uuid, String name, byte[] key, Context context, boolean secure){
         mBluetoothAdapter = bluetoothAdapter;
         mUUID = uuid;
         mName = name;
         mKey = key;
         mContext = context;
         mSecure = secure;
-        mMacAddress = macAdress;
+
+        MESSAGE_REQUEST_KEY = new byte[MSG_SIZE]; //makes the MESSAGE_REQUEST_KEY constant to be what it's meant to be.
+        MESSAGE_REQUEST_KEY[0] = 1;
     }
 
-    public void runAcceptThread(){
+    public synchronized void runAcceptThread(){
         Log.i(TAG, "running accept Thread");
         if(mAcceptThread != null){
             mAcceptThread.cancel();
@@ -46,7 +57,7 @@ public class BluetoothContactTracer2 {
         mAcceptThread.start();
     }
 
-    public void runConnectThread(BluetoothDevice device){
+    public synchronized void runConnectThread(BluetoothDevice device){
         Log.i(TAG, "running connect Thread");
         if(mConnectThread != null){
             mConnectThread.cancel();
@@ -55,7 +66,7 @@ public class BluetoothContactTracer2 {
         mConnectThread.start();
     }
 
-    public void runConnectedThread(BluetoothSocket socket){
+    public synchronized void runConnectedThread(BluetoothSocket socket){
         Log.i(TAG, "running connected Thread");
         if(mConnectedThread != null){
             return;
@@ -63,6 +74,23 @@ public class BluetoothContactTracer2 {
             mConnectedThread = new ConnectedThread(socket);
             mConnectedThread.start();
         }
+    }
+
+    public synchronized void restartBluetooth(){
+        Log.i(TAG, "keys have been shared, and bluetooth is being restarted.");
+        if(mAcceptThread != null){
+            mAcceptThread.cancel();
+            mAcceptThread= null;
+        }
+        if(mConnectThread != null){
+            mConnectThread.cancel();
+            mConnectThread= null;
+        }
+        if(mConnectedThread != null){
+            mConnectedThread.cancel();
+            mConnectedThread= null;
+        }
+        runAcceptThread();
     }
 
     private class AcceptThread extends Thread{
@@ -184,7 +212,13 @@ public class BluetoothContactTracer2 {
         private final OutputStream mmOutStream;
         private byte[] mmBuffer; // mmBuffer store for the stream
 
+        int numAttempts; //stores the number of times the key has been sent. If the key was attempted to be sent more than 3 times, there's probably an error with the other device, so we should end the connection.
+        boolean hasReceivedKey; // stores wether or not the program has already written a key, in order to prevents the key from being written twice.
+
         public ConnectedThread(BluetoothSocket socket) {
+            hasReceivedKey = false;
+            numAttempts = 0;
+
             mmSocket = socket;
             InputStream tmpIn = null;
             OutputStream tmpOut = null;
@@ -206,20 +240,41 @@ public class BluetoothContactTracer2 {
 
         public void run() {
             write(mKey);
-            mmBuffer = new byte[2048];
+            mmBuffer = new byte[MSG_SIZE];
             int numBytes; // bytes returned from read()
             // Keep listening to the InputStream until an exception occurs.
             while (true) {
                 try {
                     // Read from the InputStream.
                     numBytes = mmInStream.read(mmBuffer);
-                    Log.i(TAG, mmBuffer.toString());
+                    if(mmBuffer == MESSAGE_DONE){//the other app is telling you that we need to end the connection.
+                        if(hasReceivedKey){
+                            break;
+                        }else{
+                            write(MESSAGE_REQUEST_KEY);
+                        }
+                    }else if(mmBuffer == MESSAGE_REQUEST_KEY){
+                        if(numAttempts < MAX_NUM_ATTEMPTS) {
+                            write(mKey);
+                            numAttempts++;
+                        }else{
+                            //the other program has already asked us for our key 3 times, and something is probably going wrong. Disconnect.
+                            Log.e(TAG, "Other connected bluetooth device has requested our key 3 times, but nothing happened. Terminating connection. ");
+                            break;
+                        }
+                    }else{ // the other device has sent a key.
+                        ContactTrace mmContactTrace = new ContactTrace(mKey); //TODO: incorperate MAC address
+                        CoronaHandler.writeKey(mmContactTrace, mContext);
+                    }
                     // TODO: Send the obtained bytes to the UI activity.
                 } catch (IOException e) {
                     Log.d(TAG, "Input stream was disconnected", e);
                     break;
                 }
             }
+            restartBluetooth();
+
+            //TODO: also incorperate a timeout if both devices can't transfer keys fast enough.
         }
 
         public void write(byte[] bytes) {
@@ -231,6 +286,15 @@ public class BluetoothContactTracer2 {
                 // TODO: Send a failure message back to the activity.
             }
         }
+
+        public void cancel() {
+            try {
+                mmSocket.close();
+            } catch (IOException e) {
+                Log.e(TAG, "close() of connect socket failed", e);
+            }
+        }
+
 
 
     }
