@@ -1,7 +1,9 @@
 package com.example.coronavirustracker;
 
 import android.content.Context;
+import android.os.Parcel;
 import android.os.ParcelUuid;
+import android.os.Parcelable;
 import android.util.Log;
 import android.util.Pair;
 
@@ -158,12 +160,21 @@ public class CoronaHandler {
 
 
 
-    public static Pair<Key, Key> readKeyPair(Context context) throws IOException, InvalidKeySpecException, NoSuchAlgorithmException {
+    public static Pair<Key, Key> readKeyPair(Context context) {
         //returns <Privatekey, Publickey>
         //TODO: rewrite to make this not have to read the file twice
-        Key pvt = binaryToPrivateKey(readFile(MainActivity.PRIVATE_KEY_LOCATION, context));
-        Key pub = binaryToPublicKey(readFile(MainActivity.PUBLIC_KEY_LOCATION, context));
-        return new Pair<>(pvt, pub);
+        try {
+            Key pvt = binaryToPrivateKey(readFile(MainActivity.PRIVATE_KEY_LOCATION, context));
+            Key pub = binaryToPublicKey(readFile(MainActivity.PUBLIC_KEY_LOCATION, context));
+            return new Pair<>(pvt, pub);
+        } catch (NoSuchAlgorithmException e) { // TODO: handle errors.
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        } catch (InvalidKeySpecException e) {
+            e.printStackTrace();
+        }
+        return null;
     }
 
     public static byte[] readFile(String filename, Context context) throws IOException {
@@ -231,10 +242,12 @@ public class CoronaHandler {
         return UUID.randomUUID().toString();
     }
 
-    public static boolean uuidsMatch(ParcelUuid[] uuids, UUID targetUUID){
+    public static boolean uuidsMatch(Parcelable[] uuids, UUID targetUUID){
         String targetUUIDString = targetUUID.toString();
-        for(ParcelUuid uuid:uuids){
-            if(uuid.getUuid().toString().equals(targetUUIDString)){
+        for(Parcelable uuid:uuids){
+            String uuidString = uuid.toString();
+            if(uuidString.equals(targetUUIDString)){
+                Log.i(MainActivity.TAG,"found device to connect tos");
                 return true;
             }
         }

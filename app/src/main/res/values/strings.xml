@@ -16,4 +16,10 @@
     <string name="no_bluetooth">\"Your device doesn\'t support bluetooth. \"</string>
     <string name="make_device_discoverable">make device discoverable</string>
     <string name="discover_other_nearby_devices">discover other nearby devices</string>
+    <string name="check_if_in_discovery">check if in Discovery</string>
+    <string name="reset_all">Reset All</string>
+    <string name="start_discovery">Start Discovery</string>
+    <string name="bluetooth_sucsess">Successfully shared data with nearby device</string>
+    <string name="bluetooth_connection_sucsess">Successfully connected with bluetooth</string>
+    <string name="bluetooth_error">Error with bluetooth. Retrying</string>
 </resources>

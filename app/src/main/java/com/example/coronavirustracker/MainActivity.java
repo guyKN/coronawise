@@ -14,19 +14,26 @@ import android.content.IntentFilter;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.Bundle;
+import android.os.CountDownTimer;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.Message;
 import android.os.ParcelUuid;
+import android.os.Parcelable;
 import android.util.Log;
 import android.util.Pair;
 import android.view.View;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.example.coronavirustracker.bluetooth.BluetoothContactTracer2;
 import com.example.coronavirustracker.database.ContactTrace;
+import com.example.coronavirustracker.database.ContactTraceDao;
+import com.example.coronavirustracker.database.ContactTraceRoomDatabase;
 import com.example.coronavirustracker.internet.DownloadCallback;
 import com.example.coronavirustracker.internet.NetworkFragment;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
@@ -37,6 +44,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SignatureException;
 import java.security.spec.InvalidKeySpecException;
 import java.sql.Timestamp;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
@@ -60,6 +68,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
     private final static String URL = "http://hallowdawnlarp.com/covid19.php";
     public final static String PRIVATE_KEY_LOCATION = "privatekey.key";
     public final static String PUBLIC_KEY_LOCATION = "publickey.pub";
+    public final static int THREAD_DELAY = 1000;//how long to wait before sending key to other bluetooth device.
 
     private NetworkFragment networkFragment;
     private boolean downloading = false; // used so that we don't download 2 things at once.
@@ -69,14 +78,6 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
     }
     private BluetoothContactTracer2 mBluetoothContactTracer2;
     BluetoothAdapter mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-
-    private final Handler mHandler = new Handler(new Handler.Callback() {
-        @Override
-        public boolean handleMessage(Message message) { // TODO: this has the potential for leak. Fix that.
-            Log.i(TAG, message.toString());
-            return true;
-        }
-    });
 
     //Messages from BluetoothContactTracer
     public static final int MESSAGE_STATE_CHANGE = 1;
@@ -92,7 +93,37 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
 
 
 
-    @Override
+    Handler mHandler = new Handler(Looper.getMainLooper()){ //TODO: finish
+        @Override
+        public void handleMessage(Message msg) {
+            switch(msg.what){
+                case BluetoothContactTracer2.MessageConstants.MESSAGE_BLUETOOTH_DONE:
+                    Toast.makeText(getApplicationContext(), R.string.bluetooth_sucsess,
+                            Toast.LENGTH_SHORT).show();
+                case BluetoothContactTracer2.MessageConstants.WRITE_KEY:
+                    new CountDownTimer(THREAD_DELAY, THREAD_DELAY) {
+                        public void onFinish() {
+                            Pair<Key,Key> keyPair= readKeyPair(getLocalContext());
+                            byte[] pub = keyPair.second.getEncoded();
+                            mBluetoothContactTracer2.write(pub);
+
+                        }
+
+                        public void onTick(long millisUntilFinished) {
+                            // millisUntilFinished    The amount of time until finished.
+                        }
+                    }.start();
+
+                case BluetoothContactTracer2.MessageConstants.MESSAGE_BLUETOOTH_ERROR:
+
+            }
+        }
+
+    };
+
+
+
+        @Override
     protected void onCreate(Bundle savedInstanceState) {
         Context context = this;
         instance = this; // save the Context for further use
@@ -124,30 +155,25 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
                 MY_PERMISSIONS_REQUEST_ACCESS_COARSE_LOCATION); //TODO: explain to the user why this is needed.
 
 
-        IntentFilter deviceFoundFilter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
-        registerReceiver(deviceFoundReceiver, deviceFoundFilter);
-        mBluetoothAdapter.startDiscovery();
+        IntentFilter bluetoothUpdateFilter = new IntentFilter();
+        bluetoothUpdateFilter.addAction(BluetoothDevice.ACTION_FOUND);
+        bluetoothUpdateFilter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
+        bluetoothUpdateFilter.addAction(BluetoothDevice.ACTION_UUID);
+        registerReceiver(mReceiver, bluetoothUpdateFilter);
+
+        //TODO: uncomment the line below.
+        //mBluetoothAdapter.startDiscovery();
 
 
 
-        try {
-            Pair<Key,Key> keyPair= readKeyPair(context);
-            byte[] pub = keyPair.second.getEncoded();
-            mBluetoothContactTracer2 = new BluetoothContactTracer2(mBluetoothAdapter, MY_UUID, DEVICE_BLUETOOTH_NAME, pub, context, false);
-            mBluetoothContactTracer2.runAcceptThread();
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (InvalidKeySpecException e) {
-            e.printStackTrace();
-        } catch (NoSuchAlgorithmException e) {
-            e.printStackTrace();
-        }
+        mBluetoothContactTracer2 = new BluetoothContactTracer2(mBluetoothAdapter, MY_UUID, DEVICE_BLUETOOTH_NAME, context, false, mHandler);
+        mBluetoothContactTracer2.runAcceptThread();
 
     }
 
     @Override
     protected void onDestroy() {
-        unregisterReceiver(deviceFoundReceiver);
+        unregisterReceiver(mReceiver);
         super.onDestroy();
     }
 
@@ -159,35 +185,58 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
         }
     }
 
-    private final BroadcastReceiver deviceFoundReceiver = new BroadcastReceiver() {
+    ArrayList<BluetoothDevice> mDeviceList = new ArrayList<BluetoothDevice>();
+
+    private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
-            if (BluetoothDevice.ACTION_FOUND.equals(action)) {
-                // Discovery has found a device. Get the BluetoothDevice
-                // object and its info from the Intent.
-                BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-                Log.i(TAG, "got somewhat far");
-                ParcelUuid[] uuids = device.getUuids();
-                Log.i(TAG, "got this far");
-                Log.i(TAG, String.valueOf(uuids.length));
-                if(CoronaHandler.uuidsMatch(uuids, MY_UUID)) { //check if the new device is the same type of application as the current application
-                    mBluetoothContactTracer2.runConnectThread(device);
-                    Log.i(TAG, "new device found " + device.toString() + ". Device name " + device.getName());
-                    mBluetoothAdapter.cancelDiscovery();
-                }else{
-                    mBluetoothAdapter.startDiscovery();
-                }
 
+            if (BluetoothDevice.ACTION_FOUND.equals(action)) {
+                BluetoothDevice device = (BluetoothDevice) intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                mDeviceList.add(device);
+            } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
+                // discovery has finished, give a call to fetchUuidsWithSdp on first device in list.
+                if (!mDeviceList.isEmpty()) {
+                    BluetoothDevice device = mDeviceList.remove(0);
+                    boolean result = device.fetchUuidsWithSdp();
+                }else{
+                    mBluetoothAdapter.startDiscovery();//no device found, restart the discovery
+                }
+            } else if (BluetoothDevice.ACTION_UUID.equals(action)) {
+                // This is when we can be assured that fetchUuidsWithSdp has completed.
+                // So get the uuids and call fetchUuidsWithSdp on another device in list
+                BluetoothDevice extraDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                Parcelable[] uuidExtra = intent.getParcelableArrayExtra(BluetoothDevice.EXTRA_UUID);
+                //Log.i(TAG, "DeviceExtra name - " + extraDevice.getName());
+                if (uuidExtra != null) {
+                    String macAddress = extraDevice.getAddress();
+                    ContactTraceRoomDatabase db = ContactTraceRoomDatabase.getDatabase(context);
+                    ContactTraceDao dao = db.ContactTraceDao();
+                    List<String> allAddresses = dao.getMacAddresses();
+                    if(CoronaHandler.uuidsMatch(uuidExtra, MY_UUID) && !allAddresses.contains(macAddress)){ //TODO: also make the MAC address match.
+                        mBluetoothContactTracer2.runConnectThread(extraDevice, macAddress);
+                        return;
+                    }
+                } else {
+                    //Log.i(TAG, "uuidExtra is still null");
+                }
+                if (!mDeviceList.isEmpty()) {
+                    BluetoothDevice device = mDeviceList.remove(0);
+                    boolean result = device.fetchUuidsWithSdp();
+                }else{
+                    mBluetoothAdapter.startDiscovery();//no devices are valid, restarting discovery.
+                }
             }
         }
     };
 
 
 
-
     @Override
     public void updateFromDownload(String result) {
         // Update your UI here based on result of download.
+        TextView info = (TextView) findViewById(R.id.infoBox);
+        info.setText(result);
         Log.i(TAG, result);
     }
 
@@ -217,6 +266,17 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
     }
 
 
+    /********************************** Status Updates ***********************************************************************************/
+
+    public void UIbluetoothError(){
+        Toast.makeText(getApplicationContext(), R.string.bluetooth_error,
+                Toast.LENGTH_SHORT).show();
+    }
+
+    public void UIbluetoothSuccsess(){
+        Toast.makeText(getApplicationContext(), R.string.bluetooth_sucsess,
+                Toast.LENGTH_SHORT).show();
+    }
 
     /*********************************** Button Methods ***********************************************************************************/
 
@@ -252,7 +312,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
             String signatureString = CoronaHandler.KeyToString(signature);
             startDownload(formatURLParam(signatureString), "POST");
 
-        } catch (NoSuchAlgorithmException | IOException | InvalidKeySpecException | InvalidKeyException | SignatureException e) {
+        } catch (NoSuchAlgorithmException | IOException  | InvalidKeyException | SignatureException e) {
             e.printStackTrace();
         }
     }
@@ -266,7 +326,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
     }
     public void addToDatabase(View view){
         Key key = generateKeyPair().getPublic();
-        ContactTrace contactTrace = new ContactTrace(key.getEncoded());
+        ContactTrace contactTrace = new ContactTrace(key.getEncoded(), "");
         CoronaHandler.writeKey(contactTrace, view.getContext());
     }
     public void generateKeys(View view){
@@ -282,19 +342,11 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
         }
     }
     public void printKeys(View view){
-        try {
-            Pair<Key, Key> keys = readKeyPair(view.getContext());
-            Key pvt = keys.first;
-            Key pub = keys.second;
-            Log.i(TAG, "Private Key: " + pvt.toString());
-            Log.i(TAG, "Public Key: " + pub.toString());
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (InvalidKeySpecException e) {
-            e.printStackTrace();
-        } catch (NoSuchAlgorithmException e) {
-            e.printStackTrace();
-        }
+        Pair<Key, Key> keys = readKeyPair(view.getContext());
+        Key pvt = keys.first;
+        Key pub = keys.second;
+        Log.i(TAG, "Private Key: " + pvt.toString());
+        Log.i(TAG, "Public Key: " + pub.toString());
     }
     public void createSignature(View view){
         try {
@@ -354,4 +406,29 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
         }
     }
 
+    public void checkIfInDiscovery(View view){
+        if(mBluetoothAdapter.isDiscovering()){
+            Log.i(TAG, "in discovery");
+        }else{
+            Log.i(TAG, "not in discovery");
+        }
+    }
+
+    public void resetAll(View view){
+        Context context = view.getContext();
+        ContactTraceRoomDatabase db = ContactTraceRoomDatabase.getDatabase(view.getContext());
+        ContactTraceDao dao = db.ContactTraceDao();
+        dao.deleteAll();
+        File pk = new File(context.getFilesDir(), PUBLIC_KEY_LOCATION);
+        if(!pk.delete()){
+            Log.i(TAG, "error deleting file");
+        }
+
+        File pvt = new File(context.getFilesDir(), PRIVATE_KEY_LOCATION);
+        if(!pvt.delete()){
+            Log.i(TAG, "error deleting file");
+        }
+
+
+    }
 }

@@ -335,6 +335,9 @@ public class NetworkFragment extends Fragment {
             List<ContactTrace> contactTraces = CoronaHandler.readContactTrace(MainActivity.getLocalContext());
             for (ContactTrace trace : contactTraces){
                 try {
+                    Log.i(TAG, "Key: " + CoronaHandler.KeyToString(trace.getKey().getEncoded()));
+                    Log.i(TAG, "Signature: " + CoronaHandler.KeyToString(signature));
+
                     if (CoronaHandler.verifySignature(trace.getKey(), signature)){
                         return new Exposure(trace.getTimestamp(), verifiedExposureTime);
                     }

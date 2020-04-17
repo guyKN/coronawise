@@ -1,6 +1,7 @@
 package com.example.coronavirustracker.database;
 
 import androidx.room.Dao;
+import androidx.room.Delete;
 import androidx.room.Insert;
 import androidx.room.OnConflictStrategy;
 import androidx.room.Query;
@@ -15,4 +16,10 @@ public interface ContactTraceDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     void insert(ContactTrace contactTrace);
+
+    @Query("DELETE FROM ContactTraceTable")
+    void deleteAll();
+
+    @Query("SELECT macAddress FROM ContactTraceTable")
+    List<String> getMacAddresses();
 }
