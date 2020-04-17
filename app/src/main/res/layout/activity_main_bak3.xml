@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:paddingLeft="16dp"
+    android:paddingRight="16dp"
+    android:orientation="vertical"
+    android:gravity="center">
+
+
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/Scan"
+        android:text="@string/make_device_discoverable"
+        android:onClick="makeDiscoverable"/>
+
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/checkIfInDiscovery"
+        android:text="@string/check_if_in_discovery"
+        android:onClick="checkIfInDiscovery"/>
+
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/getInfoFromServer"
+        android:text="@string/get_info_from_server"
+        android:onClick="getInfoFromServer"/>
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/uploadRealToServer"
+        android:text="@string/notify_the_server_that_i_am_sick"
+        android:onClick="uploadRealKeyToServer"/>
+
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/resetDB"
+        android:text="@string/reset_all"
+        android:onClick="resetAll"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="32sp"
+        android:id="@+id/infoBox" />
+
+</LinearLayout>

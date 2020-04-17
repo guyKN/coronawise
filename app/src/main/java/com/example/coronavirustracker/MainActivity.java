@@ -69,6 +69,9 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
     public final static String PRIVATE_KEY_LOCATION = "privatekey.key";
     public final static String PUBLIC_KEY_LOCATION = "publickey.pub";
     public final static int THREAD_DELAY = 1000;//how long to wait before sending key to other bluetooth device.
+    public static final int MIN_RSSI = -70; // the minimum RSSI value for the signal to be considered within 6 feet.
+    private static final int CHECK_STATUS_EVERY = 1000; //how often we want to run the function that makes sure that the scan is going OK.
+
 
     private NetworkFragment networkFragment;
     private boolean downloading = false; // used so that we don't download 2 things at once.
@@ -86,44 +89,38 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
     public static final int MESSAGE_DEVICE_NAME = 4;
     public static final int MESSAGE_TOAST = 5;
 
-    //Key names recived from ContactTracer
-    public static final String DEVICE_NAME = "device_name";
-    public static final String TOAST = "toast";
-
 
 
 
     Handler mHandler = new Handler(Looper.getMainLooper()){ //TODO: finish
         @Override
         public void handleMessage(Message msg) {
+            final int index = msg.arg1;
             switch(msg.what){
                 case BluetoothContactTracer2.MessageConstants.MESSAGE_BLUETOOTH_DONE:
-                    Toast.makeText(getApplicationContext(), R.string.bluetooth_sucsess,
-                            Toast.LENGTH_SHORT).show();
+                    UIbluetoothSuccsess();
+                case BluetoothContactTracer2.MessageConstants.MESSAGE_BLUETOOTH_ERROR:
+                    UIbluetoothError();
                 case BluetoothContactTracer2.MessageConstants.WRITE_KEY:
                     new CountDownTimer(THREAD_DELAY, THREAD_DELAY) {
                         public void onFinish() {
                             Pair<Key,Key> keyPair= readKeyPair(getLocalContext());
                             byte[] pub = keyPair.second.getEncoded();
-                            mBluetoothContactTracer2.write(pub);
-
+                            mBluetoothContactTracer2.write(pub, index);
                         }
-
                         public void onTick(long millisUntilFinished) {
                             // millisUntilFinished    The amount of time until finished.
                         }
                     }.start();
-
-                case BluetoothContactTracer2.MessageConstants.MESSAGE_BLUETOOTH_ERROR:
-
             }
         }
 
     };
 
+    Handler repeatHandler = new Handler();
 
 
-        @Override
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         Context context = this;
         instance = this; // save the Context for further use
@@ -161,13 +158,20 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
         bluetoothUpdateFilter.addAction(BluetoothDevice.ACTION_UUID);
         registerReceiver(mReceiver, bluetoothUpdateFilter);
 
-        //TODO: uncomment the line below.
-        //mBluetoothAdapter.startDiscovery();
-
-
+        mBluetoothAdapter.startDiscovery();
 
         mBluetoothContactTracer2 = new BluetoothContactTracer2(mBluetoothAdapter, MY_UUID, DEVICE_BLUETOOTH_NAME, context, false, mHandler);
         mBluetoothContactTracer2.runAcceptThread();
+
+        repeatHandler.postDelayed(new Runnable(){ //constantly starts the discovery if the device isn't discovering.
+            public void run(){
+                if(!mBluetoothAdapter.isDiscovering()){
+                    mBluetoothAdapter.startDiscovery();
+                }
+                repeatHandler.postDelayed(this, CHECK_STATUS_EVERY);
+            }
+        }, CHECK_STATUS_EVERY);
+
 
     }
 
@@ -185,15 +189,29 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
         }
     }
 
-    ArrayList<BluetoothDevice> mDeviceList = new ArrayList<BluetoothDevice>();
-
     private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
 
             if (BluetoothDevice.ACTION_FOUND.equals(action)) {
                 BluetoothDevice device = (BluetoothDevice) intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-                mDeviceList.add(device);
+                try {
+                    String macAddress = device.getAddress();
+                    ContactTraceRoomDatabase db = ContactTraceRoomDatabase.getDatabase(context);
+                    ContactTraceDao dao = db.ContactTraceDao();
+                    List<String> allAddresses = dao.getMacAddresses();
+                    int rssi = intent.getShortExtra(BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE);
+                    if (!allAddresses.contains(macAddress) && rssi > MIN_RSSI) {
+                        mBluetoothContactTracer2.runConnectThread(device, macAddress);
+                    }
+                }catch (Exception e){
+                    e.printStackTrace();
+                }
+            }
+        }
+    };
+                //Old code that I'm probably not going to use.
+                /*
             } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
                 // discovery has finished, give a call to fetchUuidsWithSdp on first device in list.
                 if (!mDeviceList.isEmpty()) {
@@ -205,30 +223,26 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
             } else if (BluetoothDevice.ACTION_UUID.equals(action)) {
                 // This is when we can be assured that fetchUuidsWithSdp has completed.
                 // So get the uuids and call fetchUuidsWithSdp on another device in list
-                BluetoothDevice extraDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 Parcelable[] uuidExtra = intent.getParcelableArrayExtra(BluetoothDevice.EXTRA_UUID);
                 //Log.i(TAG, "DeviceExtra name - " + extraDevice.getName());
                 if (uuidExtra != null) {
-                    String macAddress = extraDevice.getAddress();
-                    ContactTraceRoomDatabase db = ContactTraceRoomDatabase.getDatabase(context);
-                    ContactTraceDao dao = db.ContactTraceDao();
-                    List<String> allAddresses = dao.getMacAddresses();
-                    if(CoronaHandler.uuidsMatch(uuidExtra, MY_UUID) && !allAddresses.contains(macAddress)){ //TODO: also make the MAC address match.
-                        mBluetoothContactTracer2.runConnectThread(extraDevice, macAddress);
+                    if(CoronaHandler.uuidsMatch(uuidExtra, MY_UUID)){
+                        String macAddress = device.getAddress();
+                        mBluetoothContactTracer2.runConnectThread(device, macAddress);
                         return;
                     }
                 } else {
                     //Log.i(TAG, "uuidExtra is still null");
                 }
                 if (!mDeviceList.isEmpty()) {
-                    BluetoothDevice device = mDeviceList.remove(0);
-                    boolean result = device.fetchUuidsWithSdp();
+                    BluetoothDevice next_device = mDeviceList.remove(0);
+                    boolean result = next_device.fetchUuidsWithSdp();
                 }else{
                     mBluetoothAdapter.startDiscovery();//no devices are valid, restarting discovery.
                 }
-            }
-        }
-    };
+
+                 */
 
 
 
@@ -268,20 +282,22 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
 
     /********************************** Status Updates ***********************************************************************************/
 
-    public void UIbluetoothError(){
-        Toast.makeText(getApplicationContext(), R.string.bluetooth_error,
-                Toast.LENGTH_SHORT).show();
+    public void UIbluetoothError(){ // Since bluetooth errors ocour all the time,
+        //Toast.makeText(getApplicationContext(), R.string.bluetooth_error,
+        //        Toast.LENGTH_LONG).show();
     }
 
     public void UIbluetoothSuccsess(){
         Toast.makeText(getApplicationContext(), R.string.bluetooth_sucsess,
-                Toast.LENGTH_SHORT).show();
+                Toast.LENGTH_LONG).show();
     }
 
     /*********************************** Button Methods ***********************************************************************************/
 
 
     public void getInfoFromServer(View view){
+        TextView info = (TextView) findViewById(R.id.infoBox);
+        info.setText(R.string.loading);
         startDownload("", RequestTypes.GET);
     }
 
@@ -303,6 +319,8 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
     }
 
     public void uploadRealKeyToServer(View view){
+        TextView info = (TextView) findViewById(R.id.infoBox);
+        info.setText(R.string.loading);
         try{
             Context context = view.getContext();
             Pair<Key, Key> keys = readKeyPair(context);
@@ -311,7 +329,6 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
             byte[] signature = CoronaHandler.generateSignature(pvt);
             String signatureString = CoronaHandler.KeyToString(signature);
             startDownload(formatURLParam(signatureString), "POST");
-
         } catch (NoSuchAlgorithmException | IOException  | InvalidKeyException | SignatureException e) {
             e.printStackTrace();
         }
@@ -391,12 +408,9 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
     }
 
     public void makeDiscoverable(View view){
-        if (mBluetoothAdapter.getScanMode() !=
-                BluetoothAdapter.SCAN_MODE_CONNECTABLE_DISCOVERABLE) {
-            Intent discoverableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE);
-            discoverableIntent.putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 3600);
-            startActivity(discoverableIntent);
-        }
+        Intent discoverableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE);
+        discoverableIntent.putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 3600);
+        startActivity(discoverableIntent);
 
     }
 
@@ -408,9 +422,12 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
 
     public void checkIfInDiscovery(View view){
         if(mBluetoothAdapter.isDiscovering()){
-            Log.i(TAG, "in discovery");
+            Toast.makeText(getApplicationContext(), "You are in discovery mode",
+                    Toast.LENGTH_SHORT).show();
         }else{
-            Log.i(TAG, "not in discovery");
+            Toast.makeText(getApplicationContext(), "you are not in discovery mode",
+                    Toast.LENGTH_SHORT).show();
+
         }
     }
 
@@ -423,12 +440,16 @@ public class MainActivity extends FragmentActivity implements DownloadCallback {
         if(!pk.delete()){
             Log.i(TAG, "error deleting file");
         }
-
         File pvt = new File(context.getFilesDir(), PRIVATE_KEY_LOCATION);
         if(!pvt.delete()){
             Log.i(TAG, "error deleting file");
         }
-
-
+        try {
+            CoronaHandler.writeKeyPair(generateKeyPair(), view.getContext());
+            } catch (IOException e) {
+            e.printStackTrace();
+        }
+        Toast.makeText(getApplicationContext(), "all information has been reset",
+                Toast.LENGTH_SHORT).show();
     }
 }

@@ -17,10 +17,13 @@ import com.example.coronavirustracker.database.ContactTrace;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 
-public class BluetoothContactTracer2 {
+public class BluetoothContactTracer2 { // TODO: ensure errors are right
 
     public interface MessageConstants {
         int MESSAGE_BLUETOOTH_DONE = 0;
@@ -29,15 +32,14 @@ public class BluetoothContactTracer2 {
     }
 
     private static int MSG_SIZE = 2048;
-    private static byte[] MESSAGE_DONE = new byte[MSG_SIZE];// Contains 2048 zeros. the message that will be sent when the program has received the other program's key, signaling that the connection may be terminated.
-    private static byte[] MESSAGE_REQUEST_KEY; // the message to send to the other device to tell them that you haven't recieved their key yet, and want to recieve it. initialized in the constructor.
-    private static int MAX_NUM_ATTEMPTS;
 
+
+
+    private AcceptThread mAcceptThread;
+    private List<ConnectThread> mConnectThreads = new ArrayList<>();
+    private List<ConnectedThread> mConnectedThreads = new ArrayList<>();
 
     private BluetoothAdapter mBluetoothAdapter;
-    private AcceptThread mAcceptThread;
-    private ConnectThread mConnectThread;
-    private ConnectedThread mConnectedThread;
     private UUID mUUID;
     private String mName;
     private Context mContext;
@@ -54,9 +56,6 @@ public class BluetoothContactTracer2 {
         mContext = context;
         mSecure = secure;
         mHandler = handler;
-
-        MESSAGE_REQUEST_KEY = new byte[MSG_SIZE]; //makes the MESSAGE_REQUEST_KEY constant to be what it's meant to be.
-        MESSAGE_REQUEST_KEY[0] = 1;
     }
 
     public synchronized void runAcceptThread() {
@@ -70,21 +69,17 @@ public class BluetoothContactTracer2 {
 
     public synchronized void runConnectThread(BluetoothDevice device, String macAddress) {
         Log.i(TAG, "running connect Thread");
-        if (mConnectThread != null) {
-            mConnectThread.cancel();
-        }
-        mConnectThread = new ConnectThread(device, macAddress);
-        mConnectThread.start();
+        ConnectThread connectThread = new ConnectThread(device, macAddress);
+        connectThread.start();
+        mConnectThreads.add(connectThread);
     }
 
     public synchronized void runConnectedThread(BluetoothSocket socket, String macAddress) {
         Log.i(TAG, "running connected Thread");
-        if (mConnectedThread != null) {
-            return;
-        } else {
-            mConnectedThread = new ConnectedThread(socket, macAddress);
-            mConnectedThread.start();
-        }
+        int index = mConnectedThreads.size();
+        ConnectedThread connectedThread = new ConnectedThread(socket, macAddress, index);
+        connectedThread.start();
+        mConnectedThreads.add(connectedThread);
     }
 
     public synchronized void restartBluetooth() {
@@ -93,41 +88,30 @@ public class BluetoothContactTracer2 {
             mAcceptThread.cancel();
             mAcceptThread = null;
         }
-        if (mConnectThread != null) {
-            mConnectThread.cancel();
-            mConnectThread = null;
+        for (ConnectThread connectThread :mConnectThreads) {
+            connectThread.cancel();
         }
-        if (mConnectedThread != null) {
-            mConnectedThread.cancel();
-            mConnectedThread = null;
+        mConnectThreads.clear();
+
+        for (ConnectedThread connectedThread :mConnectedThreads) {
+            connectedThread.cancel();
         }
+        mConnectedThreads.clear();
         mBluetoothAdapter.startDiscovery();
         runAcceptThread();
     }
 
-    public void delayedWrite(final byte[] bytes, int milliseconds) {
-        new CountDownTimer(milliseconds, milliseconds) {
-            public void onTick(long millisUntilFinished) {
-                //nothing
-            }
-
-            public void onFinish() {
-                write(bytes);
-            }
-        }.start();
-
-    }
-
-    public void write(byte[] out) {
+    public void write(byte[] out, int index) {
         // Create temporary object
         ConnectedThread r;
         // Synchronize a copy of the ConnectedThread
-        if (mConnectedThread == null) {
-            return;
-        }
         try {
             synchronized (this) {
-                r = mConnectedThread;
+                try{
+                    r = mConnectedThreads.get(index);
+                }catch (IndexOutOfBoundsException e){
+                    return;
+                }
             }
             // Perform the write unsynchronized
             r.write(out);
@@ -139,7 +123,7 @@ public class BluetoothContactTracer2 {
 
     private class AcceptThread extends Thread {
         private final BluetoothServerSocket mmServerSocket;
-
+        private boolean shouldLoop = true;
         public AcceptThread() {
             // Use a temporary object that is later assigned to mmServerSocket
             // because mmServerSocket is final.
@@ -160,7 +144,7 @@ public class BluetoothContactTracer2 {
         public void run() {
             BluetoothSocket socket = null;
             // Keep listening until exception occurs or a socket is returned.
-            while (true) {
+            while (shouldLoop) {
                 try {
                     Log.i(TAG, "from acceptThread: connection pending");
                     socket = mmServerSocket.accept();
@@ -168,26 +152,20 @@ public class BluetoothContactTracer2 {
                 } catch (IOException e) {
                     Log.e(TAG, "Socket's accept() method failed", e);
                     mHandler.obtainMessage(MessageConstants.MESSAGE_BLUETOOTH_ERROR).sendToTarget();
-                    break;
                 }
 
                 if (socket != null) {
                     // A connection was accepted. Perform work associated with
                     // the connection in a separate thread.
                     runConnectedThread(socket, "");
-                    try {
-                        mmServerSocket.close();
-                    } catch (IOException e) {
-                        Log.e(TAG, "Could not close server socket.");
-                        mHandler.obtainMessage(MessageConstants.MESSAGE_BLUETOOTH_ERROR).sendToTarget();
-                    }
-                    break;
                 }
             }
+            runAcceptThread();
         }
 
         public void cancel() {
             try {
+                shouldLoop = false;
                 mmServerSocket.close();
             } catch (IOException e) {
                 Log.e(TAG, "Socket close() of server failed", e);
@@ -225,8 +203,8 @@ public class BluetoothContactTracer2 {
         }
 
         public void run() {
-            // Cancel discovery because it otherwise slows down the connection.
-            mBluetoothAdapter.cancelDiscovery();
+            // No need to cancel the discovery, since we are connecting multiple devices at the same time.
+            //mBluetoothAdapter.cancelDiscovery();
             try {
                 // Connect to the remote device through the socket. This call blocks
                 // until it succeeds or throws an exception.
@@ -264,11 +242,13 @@ public class BluetoothContactTracer2 {
         private final OutputStream mmOutStream;
         private byte[] mmBuffer; // mmBuffer store for the stream
         private String mmMacAddress;
+        public int mIndex;
 
         int numAttempts; //stores the number of times the key has been sent. If the key was attempted to be sent more than 3 times, there's probably an error with the other device, so we should end the connection.
         boolean hasReceivedKey; // stores wether or not the program has already written a key, in order to prevents the key from being written twice.
 
-        public ConnectedThread(BluetoothSocket socket, String macAddress) {
+        public ConnectedThread(BluetoothSocket socket, String macAddress, int index) {
+            mIndex = index;
             mmMacAddress = macAddress;
             hasReceivedKey = false;
             numAttempts = 0;
@@ -296,7 +276,7 @@ public class BluetoothContactTracer2 {
 
         public void run() {
         mHandler.obtainMessage(
-                MessageConstants.WRITE_KEY
+                MessageConstants.WRITE_KEY, mIndex, 0
         ).sendToTarget();
             mmBuffer = new byte[MSG_SIZE];
             int numBytes; // bytes returned from read()
@@ -313,7 +293,6 @@ public class BluetoothContactTracer2 {
                 Log.d(TAG, "Input stream was disconnected", e);
                 mHandler.obtainMessage(MessageConstants.MESSAGE_BLUETOOTH_ERROR).sendToTarget();
             }
-            restartBluetooth();
             //break;
 
         }

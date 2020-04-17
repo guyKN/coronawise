@@ -18,6 +18,7 @@ public class Exposure {
     }
 
     public String getMessage(){
-        return "At " + this.contactTime.toString() + "you were near someone who was verified to have the Coronavirus at " + this.verifiedExposureTime.toString();
+            //return "At " + this.contactTime.toString() + "you were near someone who was verified to have the Coronavirus at " + this.verifiedExposureTime.toString();
+        return "You are at risk of COVID-19!";
     }
 }
